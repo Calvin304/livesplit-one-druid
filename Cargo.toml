@@ -1,21 +1,23 @@
 [package]
-name = "druid-dynamic-child-widgets"
+name = "livesplit-one-desktop"
 version = "0.1.0"
 authors = ["Christopher Serr <christopher.serr@gmail.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["software-rendering"]
+software-rendering = ["livesplit-core/software-rendering"]
+
 [dependencies]
-druid = { path = "druid/druid" }
-# druid = { git = "https://github.com/linebender/druid" }
-# druid = { version = "0.7.0" }
-# livesplit-core = { git = "https://github.com/LiveSplit/livesplit-core", features = ["font-loading", "rendering"] }
-livesplit-core = { path = "C:\\Projekte\\livesplit-one-desktop\\livesplit-core", features = ["font-loading", "software-rendering"] }
-image = "0.23.13"
+# druid = { path = "druid/druid" }
+druid = { git = "https://github.com/linebender/druid" }
+livesplit-core = { git = "https://github.com/LiveSplit/livesplit-core", features = ["rendering", "font-loading", "auto-splitting"] }
+image = "0.24.3"
 log = { version = "0.4.6", features = ["serde"] }
 serde = { version = "1.0.85", features = ["derive"] }
-serde_yaml = "0.8.8"
+serde_yaml = "0.9.11"
 fern = "0.6.0"
 chrono = { version = "0.4.0", features = ["serde", "clock"], default-features = false }
 directories = "4.0.1"

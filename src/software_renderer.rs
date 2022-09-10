@@ -9,35 +9,30 @@ use livesplit_core::{layout::LayoutState, rendering::software::Renderer};
 
 pub fn render_scene(
     paint_ctx: &mut PaintCtx,
-    bottom_image: &mut Option<PietImage>,
     renderer: &mut Renderer,
     state: &LayoutState,
 ) -> Option<(f32, f32)> {
     let size = paint_ctx.size();
     let (width, height) = (size.width as u32, size.height as u32);
-    let dimensions = renderer.image().dimensions();
+    // let dimensions = renderer.image().dimensions();
 
     let new_dims = renderer.render(state, [width, height]);
 
-    let bottom_image = if bottom_image.is_none() || dimensions != (width, height) {
-        bottom_image.insert(
-            paint_ctx
-                .make_image(
-                    width as usize,
-                    height as usize,
-                    renderer.image_data(),
-                    ImageFormat::RgbaPremul,
-                )
-                .unwrap(),
+    // PietImage doesnt currently have an api to reuse previous buffers (or i couldnt find one)
+    // so just unconditionally make a new one for now
+    // TODO find a way to solve the above
+
+    let image = paint_ctx
+        .make_image(
+            width as usize,
+            height as usize,
+            renderer.image_data(),
+            ImageFormat::RgbaPremul,
         )
-    } else {
-        let bottom_image = bottom_image.as_mut().unwrap();
-        paint_ctx.update_image(bottom_image, renderer.image_data());
-        bottom_image
-    };
+        .ok()?;
 
     paint_ctx.draw_image(
-        bottom_image,
+        &image,
         Rect::from_origin_size(Point::ZERO, size),
         InterpolationMode::NearestNeighbor,
     );

@@ -2,13 +2,16 @@ use directories::ProjectDirs;
 use druid::WindowDesc;
 use livesplit_core::{
     layout::{self, Layout, LayoutSettings},
-    run::{parser::composite, saver::livesplit::save_timer},
+    run::{
+        parser::composite,
+        saver::livesplit::{save_timer, IoWrite},
+    },
     HotkeyConfig, HotkeySystem, Run, Segment, Timer, TimingMethod,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, create_dir_all, File},
-    io::{BufReader, BufWriter, Seek, SeekFrom},
+    io::{BufReader, BufWriter, Read},
     path::{Path, PathBuf},
 };
 
@@ -89,19 +92,24 @@ impl Config {
     }
 
     pub fn parse(path: impl AsRef<Path>) -> Option<Self> {
-        let buf = fs::read(path).ok()?;
-        serde_yaml::from_slice(&buf).ok()
+        let buf = BufReader::new(fs::File::open(path).ok()?);
+        serde_yaml::from_reader(buf).ok()
     }
 
     pub fn serialize(&self, path: impl AsRef<Path>) -> Option<()> {
-        let buf = serde_yaml::to_vec(self).ok()?;
-        fs::write(path, &buf).ok()
+        let file = BufWriter::new(fs::File::open(path).ok()?);
+        serde_yaml::to_writer(file, self).ok()?;
+        Some(())
     }
 
     pub fn parse_run(&self) -> Option<Run> {
         let path = self.general.splits.clone()?;
-        let file = BufReader::new(File::open(&path).ok()?);
-        let mut run = composite::parse(file, Some(path), true).ok()?.run;
+        let mut file = File::open(&path).ok()?;
+        let mut file_contents = Vec::new();
+        let _size = file.read_to_end(&mut file_contents).ok()?;
+        let mut run = composite::parse(file_contents.as_slice(), Some(path), true)
+            .ok()?
+            .run;
         run.fix_splits();
         Some(run)
     }
@@ -121,12 +129,15 @@ impl Config {
     pub fn parse_layout(&self) -> Option<Layout> {
         // TODO: Use these for open splits in the right click menu.
         let path = self.general.layout.as_ref()?;
-        let mut file = BufReader::new(File::open(path).ok()?);
-        if let Ok(settings) = LayoutSettings::from_json(&mut file) {
+        let mut file = File::open(path).ok()?;
+        let mut file_contents = String::new();
+        let _size = file.read_to_string(&mut file_contents).ok()?;
+
+        if let Ok(settings) = LayoutSettings::from_json(file_contents.as_bytes()) {
             return Some(Layout::from_settings(settings));
         }
-        file.seek(SeekFrom::Start(0)).ok()?;
-        layout::parser::parse(file).ok()
+
+        layout::parser::parse(file_contents.as_str()).ok()
     }
 
     pub fn parse_layout_or_default(&self) -> Layout {
@@ -147,7 +158,7 @@ impl Config {
             timer.set_current_timing_method(TimingMethod::GameTime);
         }
         if let Some(comparison) = &self.general.comparison {
-            timer.set_current_comparison(comparison).ok();
+            timer.set_current_comparison(comparison.as_str()).ok();
         }
     }
 
@@ -155,7 +166,7 @@ impl Config {
         if let Some(path) = &self.general.splits {
             // FIXME: Don't ignore not being able to save.
             if let Ok(file) = File::create(path) {
-                save_timer(timer, BufWriter::new(file)).ok();
+                save_timer(timer, IoWrite(BufWriter::new(file))).ok();
             }
         }
     }
@@ -220,6 +231,7 @@ impl Config {
             .window_size((self.window.width, self.window.height))
             .show_titlebar(false)
             .transparent(true)
-            .topmost(true)
+            // .topmost(true) TODO figure out a better best effort way to do this
+            // some windowing libraries do not allow Allways on Top
     }
 }

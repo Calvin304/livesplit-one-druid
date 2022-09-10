@@ -113,7 +113,7 @@ impl<T: Widget<Segment>> Widget<Segment> for SegmentWidget<T> {
 #[derive(Clone, Data)]
 pub struct State {
     state: Rc<editor::State>,
-    image: Rc<ImageBuf>,
+    image: Option<Rc<ImageBuf>>,
     #[data(ignore)]
     pub editor: Rc<RefCell<Option<RunEditor>>>,
     #[data(ignore)]
@@ -123,15 +123,19 @@ pub struct State {
 impl State {
     pub fn new(mut editor: RunEditor) -> Self {
         let state = Rc::new(editor.state());
-        let image = image::load_from_memory(state.icon_change.as_deref().unwrap())
-            .unwrap()
-            .into_rgba8();
-        let image = Rc::new(ImageBuf::from_raw(
-            image.as_raw().as_slice(),
-            ImageFormat::RgbaSeparate,
-            image.width() as _,
-            image.height() as _,
-        ));
+        let image: Option<Rc<ImageBuf>> = (|| {
+            let image = image::load_from_memory(state.icon_change.as_deref()?)
+                .ok()?
+                .into_rgba8();
+            let image = Rc::new(ImageBuf::from_raw(
+                image.as_raw().as_slice(),
+                ImageFormat::RgbaSeparate,
+                image.width() as _,
+                image.height() as _,
+            ));
+
+            Some(image)
+        })();
 
         Self {
             state,
@@ -145,21 +149,30 @@ impl State {
 fn game_icon() -> impl Widget<State> {
     Container::new(Flex::row())
         // .background(Color::grey8(0x16))
+
         .background(Painter::new(|ctx, state: &State, _| {
-            let matrix = FillStrat::Contain.affine_to_fill(ctx.size(), state.image.size());
-            ctx.with_save(|ctx| {
-                ctx.transform(matrix);
-                let image = state.image.to_image(ctx.render_ctx);
-                ctx.draw_image(
-                    &image,
-                    state.image.size().to_rect(),
-                    InterpolationMode::Bilinear,
-                );
-            })
+
+            if let Some(imagebuf) = &state.image { 
+                    let matrix = FillStrat::Contain.affine_to_fill(ctx.size(), imagebuf.size());
+                    ctx.with_save(|ctx| {
+                        ctx.transform(matrix);
+                        let image = imagebuf.to_image(ctx.render_ctx);
+                        ctx.draw_image(
+                            &image,
+                            imagebuf.size().to_rect(),
+                            InterpolationMode::Bilinear,
+                        );
+                    }) 
+            } else { 
+                let bounds = ctx.size().to_rect();
+                ctx.fill(bounds, &Color::grey8(0x16));
+            };
+
+            
         }))
         .padding(BUTTON_SPACING)
         .border(BUTTON_BORDER, 1.0)
-        .on_click(|ctx, _, _| {
+        .on_click(|_, _, _| {
             // TODO:
             // let menu = MenuDesc::new(LocalizedString::new("foo"))
             //     .append(druid::platform_menus::win::file::open())
@@ -247,7 +260,7 @@ fn offset() -> impl Widget<State> {
                     |state: &mut State, value: String| {
                         let mut editor = state.editor.borrow_mut();
                         let editor = editor.as_mut().unwrap();
-                        let _ = editor.parse_and_set_offset(value);
+                        let _ = editor.parse_and_set_offset(value.as_str());
                         state.state = Rc::new(editor.state());
                     },
                 ))
@@ -401,7 +414,7 @@ impl ListIter<Segment> for State {
             cb(&mut segment, index);
             if !segment.new_name.is_empty() {
                 editor.select_only(index);
-                editor.active_segment().set_name(&segment.new_name);
+                editor.active_segment().set_name(segment.new_name.as_str());
                 segment.new_name.clear();
                 changed = true;
             }
@@ -409,6 +422,7 @@ impl ListIter<Segment> for State {
                 editor.select_only(index);
                 let _ = editor
                     .active_segment()
+                    // TODO this is garbage: 1.00 then backspace x4 becomes 1:40.00. this is *never* what a user would want
                     .parse_and_set_split_time(&segment.new_split_time);
                 segment.new_split_time.clear();
                 changed = true;
@@ -417,6 +431,7 @@ impl ListIter<Segment> for State {
                 editor.select_only(index);
                 let _ = editor
                     .active_segment()
+                    // TODO this is garbage: 1.00 then backspace x4 becomes 1:40.00. this is *never* what a user would want
                     .parse_and_set_segment_time(&segment.new_segment_time);
                 segment.new_segment_time.clear();
                 changed = true;
@@ -425,6 +440,7 @@ impl ListIter<Segment> for State {
                 editor.select_only(index);
                 let _ = editor
                     .active_segment()
+                    // TODO this is garbage: 1.00 then backspace x4 becomes 1:40.00. this is *never* what a user would want
                     .parse_and_set_best_segment_time(&segment.new_best_segment_time);
                 segment.new_best_segment_time.clear();
                 changed = true;
@@ -481,25 +497,25 @@ fn segments() -> impl Widget<State> {
             Flex::row()
                 .with_spacer(TABLE_HORIZONTAL_MARGIN)
                 .with_flex_child(
-                    ClipBox::new(Label::new("Segment Name").with_font(COLUMN_LABEL_FONT))
+                    ClipBox::unmanaged(Label::new("Segment Name").with_font(COLUMN_LABEL_FONT))
                         .expand_width(),
                     1.0,
                 )
                 .with_spacer(GRID_BORDER)
                 .with_child(
-                    ClipBox::new(Label::new("Split Time").with_font(COLUMN_LABEL_FONT))
+                    ClipBox::unmanaged(Label::new("Split Time").with_font(COLUMN_LABEL_FONT))
                         .align_right()
                         .fix_width(TIME_COLUMN_WIDTH),
                 )
                 .with_spacer(GRID_BORDER)
                 .with_child(
-                    ClipBox::new(Label::new("Segment Time").with_font(COLUMN_LABEL_FONT))
+                    ClipBox::unmanaged(Label::new("Segment Time").with_font(COLUMN_LABEL_FONT))
                         .align_right()
                         .fix_width(TIME_COLUMN_WIDTH),
                 )
                 .with_spacer(GRID_BORDER)
                 .with_child(
-                    ClipBox::new(Label::new("Best Segment").with_font(COLUMN_LABEL_FONT))
+                    ClipBox::unmanaged(Label::new("Best Segment").with_font(COLUMN_LABEL_FONT))
                         .align_right()
                         .fix_width(TIME_COLUMN_WIDTH),
                 )

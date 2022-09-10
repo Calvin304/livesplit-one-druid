@@ -255,6 +255,7 @@ pub fn widget<T: ListIter<SettingsRow>>() -> impl Widget<T> {
                             Value::ListGradient(_) => Box::new(list_gradient()),
                             Value::Hotkey(_) => Box::new(hotkey()),
                             Value::Int(_) => todo!(),
+                            Value::DeltaGradient(_) => todo!(),
                         },
                     ),
                     1.0,

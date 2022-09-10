@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, Seek, SeekFrom},
+    io::{BufReader, Read, Seek, SeekFrom},
 };
 
 use druid::{
@@ -31,7 +31,6 @@ use crate::{
 struct WithMenu<T> {
     // device: Device,
     renderer: livesplit_core::rendering::software::Renderer,
-    bottom_image: Option<PietImage>,
     inner: T,
 }
 
@@ -50,7 +49,6 @@ impl<T> WithMenu<T> {
             // },
             // device,
             renderer: Default::default(),
-            bottom_image: None,
             inner,
         }
     }
@@ -93,7 +91,8 @@ impl<T: Widget<MainState>> Widget<MainState> for WithMenu<T> {
                 {
                     let mut compare_against = Menu::new("Compare Against");
 
-                    let timer = data.timer.read();
+                    //TODO dont unwrap
+                    let timer = data.timer.read().unwrap();
                     let current_comparison = timer.current_comparison();
                     for comparison in timer.run().comparisons() {
                         compare_against = compare_against.entry(
@@ -206,8 +205,10 @@ impl<T: Widget<MainState>> Widget<MainState> for WithMenu<T> {
             }
             Event::Command(command) => {
                 if command.is(CONTEXT_MENU_EDIT_SPLITS) {
-                    data.hotkey_system.borrow_mut().deactivate();
-                    let run = data.timer.read().run().clone();
+                    // the only error is threadstopped which means the hotkey system is effectively disabled anyways
+                    let _ = data.hotkey_system.borrow_mut().deactivate();
+                    // TODO dont unwrap
+                    let run = data.timer.read().unwrap().run().clone();
                     let editor = RunEditor::new(run).unwrap();
                     let window = WindowDesc::new(run_editor::root_widget().lens(RunEditorLens))
                         .title("Splits Editor")
@@ -221,10 +222,22 @@ impl<T: Widget<MainState>> Widget<MainState> for WithMenu<T> {
                         state: run_editor::State::new(editor),
                     });
                 } else if let Some(file_info) = command.get(CONTEXT_MENU_OPEN_SPLITS) {
-                    let file = BufReader::new(File::open(file_info.path()).unwrap());
-                    let run =
-                        composite::parse(file, Some(file_info.path().to_path_buf()), true).unwrap();
-                    data.timer.write().set_run(run.run).map_err(drop).unwrap();
+                    let mut file = File::open(file_info.path()).unwrap();
+                    let mut file_contents = Vec::new();
+                    let _size = file.read_to_end(&mut file_contents);
+                    let run = composite::parse(
+                        file_contents.as_slice(),
+                        Some(file_info.path().to_path_buf()),
+                        true,
+                    )
+                    .unwrap();
+                    //TODO dont unwrap
+                    data.timer
+                        .write()
+                        .unwrap()
+                        .set_run(run.run)
+                        .map_err(drop)
+                        .unwrap();
                     data.config
                         .borrow_mut()
                         .set_splits_path(Some(file_info.path()));
@@ -246,38 +259,43 @@ impl<T: Widget<MainState>> Widget<MainState> for WithMenu<T> {
                     });
                 } else if let Some(file_info) = command.get(CONTEXT_MENU_OPEN_LAYOUT) {
                     let mut file = BufReader::new(File::open(file_info.path()).unwrap());
-                    data.layout_data.borrow_mut().layout =
-                        if let Ok(settings) = LayoutSettings::from_json(&mut file) {
-                            Layout::from_settings(settings)
+                    let mut file_contents = String::new();
+                    let _size = file.read_to_string(&mut file_contents).unwrap();
+                    data.layout_data.borrow_mut().layout = if let Ok(settings) =
+                        LayoutSettings::from_json(file_contents.as_bytes())
+                    {
+                        Layout::from_settings(settings)
+                    } else {
+                        if let Ok(parsed_layout) = layout::parser::parse(file_contents.as_str()) {
+                            parsed_layout
                         } else {
-                            let _ = file.seek(SeekFrom::Start(0));
-                            if let Ok(parsed_layout) = layout::parser::parse(&mut file) {
-                                parsed_layout
-                            } else {
-                                // TODO: Maybe dangerous
-                                return;
-                            }
-                        };
+                            // TODO: Maybe dangerous
+                            return;
+                        }
+                    };
                     data.config
                         .borrow_mut()
                         .set_layout_path(Some(file_info.path()));
                 } else if command.is(CONTEXT_MENU_START_OR_SPLIT) {
-                    data.timer.write().split_or_start();
+                    data.timer.write().unwrap().split_or_start();
                 } else if command.is(CONTEXT_MENU_RESET) {
                     // TODO: Ask user if they want to save best segments.
-                    data.timer.write().reset(true);
+                    data.timer.write().unwrap().reset(true);
                 } else if command.is(CONTEXT_MENU_UNDO_SPLIT) {
-                    data.timer.write().undo_split();
+                    data.timer.write().unwrap().undo_split();
                 } else if command.is(CONTEXT_MENU_SKIP_SPLIT) {
-                    data.timer.write().skip_split();
+                    data.timer.write().unwrap().skip_split();
                 } else if command.is(CONTEXT_MENU_TOGGLE_PAUSE) {
-                    data.timer.write().toggle_pause();
+                    data.timer.write().unwrap().toggle_pause();
                 } else if command.is(CONTEXT_MENU_UNDO_ALL_PAUSES) {
-                    data.timer.write().undo_all_pauses();
+                    data.timer.write().unwrap().undo_all_pauses();
                 } else if command.is(CONTEXT_MENU_TOGGLE_TIMING_METHOD) {
-                    data.timer.write().toggle_timing_method();
+                    data.timer.write().unwrap().toggle_timing_method();
                 } else if let Some(comparison) = command.get(CONTEXT_MENU_SET_COMPARISON) {
-                    data.timer.write().set_current_comparison(comparison);
+                    data.timer
+                        .write()
+                        .unwrap()
+                        .set_current_comparison(comparison.as_str());
                 } else if command.is(CONTEXT_MENU_EDIT_SETTINGS) {
                     data.hotkey_system.borrow_mut().deactivate();
                     let window =
@@ -337,11 +355,15 @@ impl<T: Widget<MainState>> Widget<MainState> for WithMenu<T> {
                 .borrow_mut()
                 .as_mut()
                 .unwrap()
-                .update_layout_state(&mut layout_data.layout_state, &data.timer.read().snapshot());
+                .update_layout_state(
+                    &mut layout_data.layout_state,
+                    &data.timer.read().unwrap().snapshot(),
+                );
         } else {
-            layout_data
-                .layout
-                .update_state(&mut layout_data.layout_state, &data.timer.read().snapshot());
+            layout_data.layout.update_state(
+                &mut layout_data.layout_state,
+                &data.timer.read().unwrap().snapshot(),
+            );
         }
 
         // let size = ctx.size();
@@ -364,7 +386,6 @@ impl<T: Widget<MainState>> Widget<MainState> for WithMenu<T> {
 
         if let Some((new_width, new_height)) = software_renderer::render_scene(
             ctx,
-            &mut self.bottom_image,
             &mut self.renderer,
             &layout_data.layout_state,
         ) {
@@ -391,12 +412,13 @@ impl<T, W: Widget<T>> Controller<T, W> for DragWindowController {
                 ctx.set_active(true);
                 self.init_pos = Some(me.window_pos)
             }
-            Event::MouseMove(me) if ctx.is_active() && me.buttons.has_left() => {
+            Event::MouseMove(me) if ctx.is_active() => {
                 if let Some(init_pos) = self.init_pos {
+                    let window = ctx.window();
                     let within_window_change = me.window_pos.to_vec2() - init_pos.to_vec2();
-                    let old_pos = ctx.window().get_position();
+                    let old_pos = window.get_position();
                     let new_pos = old_pos + within_window_change;
-                    ctx.window().set_position(new_pos)
+                    window.set_position(new_pos)
                 }
             }
             Event::MouseUp(_me) if ctx.is_active() => {
@@ -427,7 +449,12 @@ impl AppDelegate<MainState> for WindowManagement {
             if id == window.id {
                 if window.state.closed_with_ok {
                     let run = window.state.editor.borrow_mut().take().unwrap().close();
-                    data.timer.write().set_run(run).map_err(drop).unwrap();
+                    data.timer
+                        .write()
+                        .unwrap()
+                        .set_run(run)
+                        .map_err(drop)
+                        .unwrap();
                 }
                 data.run_editor = None;
                 data.hotkey_system.borrow_mut().activate();

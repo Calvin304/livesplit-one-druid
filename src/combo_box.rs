@@ -11,9 +11,10 @@ struct CloseOnFocusLoss;
 
 impl<T, W: Widget<T>> Controller<T, W> for CloseOnFocusLoss {
     fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
-        if let Event::WindowLostFocus = event {
-            ctx.submit_command(CLOSE_WINDOW);
-        }
+        // TODO find replacement for the removed WindowLostFocus event
+        // if let Event::WindowLostFocus = event {
+        //     ctx.submit_command(CLOSE_WINDOW);
+        // }
         child.event(ctx, event, data, env)
     }
 }
